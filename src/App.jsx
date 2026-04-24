@@ -5,7 +5,6 @@ import Paste from "./screens/Paste.jsx";
 import List from "./screens/List.jsx";
 import Search from "./screens/Search.jsx";
 import Sources from "./screens/Sources.jsx";
-import Diag from "./screens/Diag.jsx";
 
 export default function App() {
   const uid = useAuthUid();
@@ -73,7 +72,6 @@ export default function App() {
         {tab === "list"    && <List uid={uid} />}
         {tab === "search"  && <Search uid={uid} />}
         {tab === "sources" && <Sources uid={uid} />}
-        {tab === "diag"    && <Diag uid={uid} />}
       </main>
     </div>
   );
