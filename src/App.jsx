@@ -5,6 +5,7 @@ import Paste from "./screens/Paste.jsx";
 import List from "./screens/List.jsx";
 import Search from "./screens/Search.jsx";
 import Sources from "./screens/Sources.jsx";
+import Diag from "./screens/Diag.jsx";
 
 export default function App() {
   const uid = useAuthUid();
@@ -12,14 +13,7 @@ export default function App() {
 
   if (!uid) {
     return (
-      <div
-        style={{
-          fontSize: 12,
-          color: T.muted,
-          padding: 48,
-          textAlign: "center",
-        }}
-      >
+      <div style={{ fontSize: 12, color: T.muted, padding: 48, textAlign: "center" }}>
         認証中...
       </div>
     );
@@ -27,7 +21,6 @@ export default function App() {
 
   return (
     <div style={{ minHeight: "100vh", background: T.bg }}>
-      {/* ヘッダー */}
       <header
         style={{
           padding: "20px 24px 16px",
@@ -45,21 +38,11 @@ export default function App() {
             flexWrap: "wrap",
           }}
         >
-          <h1 style={{ fontSize: 18, fontWeight: 700, letterSpacing: 0.5 }}>
-            {APP_NAME}
-          </h1>
+          <h1 style={{ fontSize: 18, fontWeight: 700, letterSpacing: 0.5 }}>{APP_NAME}</h1>
           <span style={{ fontSize: 11, color: T.muted }}>{APP_TAGLINE}</span>
         </div>
 
-        {/* タブ */}
-        <div
-          style={{
-            maxWidth: 1040,
-            margin: "12px auto 0",
-            display: "flex",
-            gap: 4,
-          }}
-        >
+        <div style={{ maxWidth: 1040, margin: "12px auto 0", display: "flex", gap: 4 }}>
           {TABS.map((t) => {
             const active = tab === t.id;
             return (
@@ -73,9 +56,7 @@ export default function App() {
                   color: active ? T.text : T.muted,
                   background: "transparent",
                   border: "none",
-                  borderBottom: `2px solid ${
-                    active ? T.text : "transparent"
-                  }`,
+                  borderBottom: `2px solid ${active ? T.text : "transparent"}`,
                   cursor: "pointer",
                   transition: "all 0.15s",
                 }}
@@ -87,12 +68,12 @@ export default function App() {
         </div>
       </header>
 
-      {/* コンテンツ */}
       <main style={{ padding: "24px" }}>
         {tab === "paste"   && <Paste uid={uid} />}
         {tab === "list"    && <List uid={uid} />}
         {tab === "search"  && <Search uid={uid} />}
         {tab === "sources" && <Sources uid={uid} />}
+        {tab === "diag"    && <Diag uid={uid} />}
       </main>
     </div>
   );

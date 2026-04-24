@@ -7,9 +7,9 @@ export const TABS = [
   { id: "list",    label: "一覧" },
   { id: "search",  label: "検索" },
   { id: "sources", label: "ソース" },
+  { id: "diag",    label: "診断" },
 ];
 
-// ナレッジのソース種別（UIのセレクト・バッジで使用）
 export const SOURCES = [
   { id: "memo",      label: "メモ" },
   { id: "whimsical", label: "Whimsical" },
