@@ -7,7 +7,6 @@ export const TABS = [
   { id: "list",    label: "一覧" },
   { id: "search",  label: "検索" },
   { id: "sources", label: "ソース" },
-  { id: "diag",    label: "診断" },
 ];
 
 export const SOURCES = [
