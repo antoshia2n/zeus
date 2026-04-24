@@ -4,7 +4,6 @@ import react from "@vitejs/plugin-react";
 export default defineConfig({
   plugins: [
     react({
-      // node_modules/shia2n-core の .jsx も変換対象にする
       include: [/\.jsx?$/, /node_modules\/shia2n-core\/.*/],
     }),
   ],

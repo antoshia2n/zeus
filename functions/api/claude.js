@@ -1,11 +1,9 @@
 export async function onRequestPost(context) {
   const { request, env } = context;
   if (!env.ANTHROPIC_API_KEY) {
-    return new Response(JSON.stringify({ error: "ANTHROPIC_API_KEY not configured" }), {
-      status: 500, headers: { "Content-Type": "application/json" },
-    });
+    return json({ error: "ANTHROPIC_API_KEY not configured" }, 500);
   }
-  const body     = await request.json();
+  const body = await request.json();
   const upstream = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: {
@@ -16,8 +14,12 @@ export async function onRequestPost(context) {
     body: JSON.stringify(body),
   });
   const data = await upstream.json();
-  return new Response(JSON.stringify(data), {
-    status: upstream.status,
+  return json(data, upstream.status);
+}
+
+function json(obj, status = 200) {
+  return new Response(JSON.stringify(obj), {
+    status,
     headers: { "Content-Type": "application/json" },
   });
 }
