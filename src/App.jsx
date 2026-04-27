@@ -1,144 +1,66 @@
+import { useState } from "react";
 import { useAuthUid } from "shia2n-core";
-import { APP_NAME, APP_VERSION } from "./constants.js";
+import { APP_NAME, TABS } from "./constants.js";
+import { useIdToken } from "./lib/hooks.js";
+import ProjectView from "./screens/ProjectView.jsx";
+import FolderView  from "./screens/FolderView.jsx";
+import Settings    from "./screens/Settings.jsx";
 
-const S = {
-  root: {
-    minHeight: "100vh",
-    background: "#F0EEE7",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    fontFamily: '"Noto Sans JP", "Hiragino Sans", "YuGothic", sans-serif',
-  },
-  card: {
-    background: "#FFFFFF",
-    border: "1px solid #E5E2D9",
-    borderRadius: 10,
-    padding: "40px 48px",
-    maxWidth: 480,
-    width: "100%",
-    margin: "0 20px",
-    textAlign: "center",
-  },
-  badge: {
-    display: "inline-block",
-    fontSize: 10,
-    fontWeight: 600,
-    letterSpacing: 1,
-    textTransform: "uppercase",
-    color: "#FFFFFF",
-    background: "#1C1B18",
-    padding: "3px 10px",
-    borderRadius: 99,
-    marginBottom: 20,
-  },
-  title: {
-    fontSize: 28,
-    fontWeight: 700,
-    color: "#1C1B18",
-    letterSpacing: 0.5,
-    marginBottom: 8,
-  },
-  subtitle: {
-    fontSize: 13,
-    color: "#7A7769",
-    marginBottom: 32,
-    lineHeight: 1.6,
-  },
-  divider: {
-    borderTop: "1px solid #E5E2D9",
-    margin: "28px 0",
-  },
-  label: {
-    fontSize: 9,
-    fontWeight: 600,
-    letterSpacing: 0.8,
-    textTransform: "uppercase",
-    color: "#B5B2A8",
-    marginBottom: 6,
-  },
-  uid: {
-    fontFamily: '"DM Mono", "JetBrains Mono", monospace',
-    fontSize: 12,
-    color: "#7A7769",
-    background: "#F7F5EF",
-    border: "1px solid #E5E2D9",
-    borderRadius: 4,
-    padding: "8px 12px",
-    wordBreak: "break-all",
-    lineHeight: 1.5,
-    textAlign: "left",
-  },
-  version: {
-    fontSize: 10,
-    color: "#B5B2A8",
-    marginTop: 24,
-  },
-  phaseList: {
-    textAlign: "left",
-    marginTop: 0,
-  },
-  phaseItem: {
-    fontSize: 12,
-    color: "#7A7769",
-    lineHeight: 2,
-    paddingLeft: 4,
-  },
-  phaseItemDone: {
-    fontSize: 12,
-    color: "#256E45",
-    fontWeight: 600,
-    lineHeight: 2,
-    paddingLeft: 4,
-  },
-};
-
-const PHASES = [
-  { label: "Phase 0：セットアップ",           done: true  },
-  { label: "Phase 1：データモデル + 管理画面", done: false },
-  { label: "Phase 2：双方向 API + 検索",       done: false },
-  { label: "Phase 3：データタイプ別ビュー",    done: false },
-  { label: "Phase 4：Web クリッパー",          done: false },
-  { label: "Phase 5：AI 加工統合",             done: false },
-  { label: "Phase 6：他アプリ連携の本格化",    done: false },
-];
+const T = { bg: "#F0EEE7", surface: "#FAFAF7", border: "#E5E2D9", muted: "#7A7769", text: "#1C1B18" };
 
 export default function App() {
-  const uid = useAuthUid();
+  const uid   = useAuthUid();
+  const token = useIdToken();
+  const [tab, setTab] = useState("projects");
 
-  if (!uid) {
+  if (!uid || !token) {
     return (
-      <div style={{ ...S.root }}>
-        <div style={{ fontSize: 12, color: "#7A7769" }}>認証中...</div>
+      <div style={{ minHeight: "100vh", background: T.bg, display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <div style={{ fontSize: 12, color: T.muted }}>
+          {!uid ? "認証中..." : "トークン取得中..."}
+        </div>
       </div>
     );
   }
 
   return (
-    <div style={S.root}>
-      <div style={S.card}>
-        <div style={S.badge}>Knowledge Repository</div>
-        <div style={S.title}>{APP_NAME}</div>
-        <div style={S.subtitle}>
-          shia2n 知的生産システムの中央リポジトリ。<br />
-          v2 リアーキテクチャ構築中です。
+    <div style={{ minHeight: "100vh", background: T.bg }}>
+      {/* ヘッダー */}
+      <header style={{ padding: "14px 20px 0", borderBottom: `1px solid ${T.border}`, background: T.surface }}>
+        <div style={{ maxWidth: 1280, margin: "0 auto" }}>
+          <div style={{ display: "flex", alignItems: "baseline", gap: 12, marginBottom: 12 }}>
+            <h1 style={{ fontSize: 18, fontWeight: 700, letterSpacing: 0.5 }}>{APP_NAME}</h1>
+            <span style={{ fontSize: 11, color: T.muted }}>知的生産システム中央リポジトリ</span>
+          </div>
+          <div style={{ display: "flex", gap: 4 }}>
+            {TABS.map(t => {
+              const active = tab === t.id;
+              return (
+                <button
+                  key={t.id}
+                  onClick={() => setTab(t.id)}
+                  style={{
+                    padding: "7px 14px", fontSize: 12, fontWeight: active ? 600 : 400,
+                    color: active ? T.text : T.muted,
+                    background: "transparent", border: "none",
+                    borderBottom: `2px solid ${active ? T.text : "transparent"}`,
+                    cursor: "pointer", transition: "all 0.15s",
+                  }}
+                >
+                  {t.label}
+                </button>
+              );
+            })}
+          </div>
         </div>
+      </header>
 
-        <div style={S.phaseList}>
-          {PHASES.map((p) => (
-            <div key={p.label} style={p.done ? S.phaseItemDone : S.phaseItem}>
-              {p.done ? "✓ " : "○ "}{p.label}
-            </div>
-          ))}
-        </div>
-
-        <div style={S.divider} />
-
-        <div style={S.label}>Authenticated UID</div>
-        <div style={S.uid}>{uid}</div>
-
-        <div style={S.version}>{APP_VERSION}</div>
-      </div>
+      {/* コンテンツ */}
+      <main>
+        {tab === "projects" && <ProjectView uid={uid} token={token} />}
+        {tab === "folders"  && <FolderView  uid={uid} token={token} />}
+        {tab === "settings" && <Settings />}
+      </main>
     </div>
   );
 }
