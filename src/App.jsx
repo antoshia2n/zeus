@@ -15,7 +15,10 @@ export default function App() {
 
   if (!uid || !token) {
     return (
-      <div style={{ minHeight: "100vh", background: T.bg, display: "flex", alignItems: "center", justifyContent: "center" }}>
+      <div style={{
+        minHeight: "100vh", background: T.bg,
+        display: "flex", alignItems: "center", justifyContent: "center",
+      }}>
         <div style={{ fontSize: 12, color: T.muted }}>
           {!uid ? "認証中..." : "トークン取得中..."}
         </div>
@@ -25,7 +28,6 @@ export default function App() {
 
   return (
     <div style={{ minHeight: "100vh", background: T.bg }}>
-      {/* ヘッダー */}
       <header style={{ padding: "14px 20px 0", borderBottom: `1px solid ${T.border}`, background: T.surface }}>
         <div style={{ maxWidth: 1280, margin: "0 auto" }}>
           <div style={{ display: "flex", alignItems: "baseline", gap: 12, marginBottom: 12 }}>
@@ -40,8 +42,9 @@ export default function App() {
                   key={t.id}
                   onClick={() => setTab(t.id)}
                   style={{
-                    padding: "7px 14px", fontSize: 12, fontWeight: active ? 600 : 400,
-                    color: active ? T.text : T.muted,
+                    padding: "7px 14px", fontSize: 12,
+                    fontWeight: active ? 600 : 400,
+                    color:      active ? T.text : T.muted,
                     background: "transparent", border: "none",
                     borderBottom: `2px solid ${active ? T.text : "transparent"}`,
                     cursor: "pointer", transition: "all 0.15s",
@@ -55,11 +58,10 @@ export default function App() {
         </div>
       </header>
 
-      {/* コンテンツ */}
       <main>
         {tab === "projects" && <ProjectView uid={uid} token={token} />}
         {tab === "folders"  && <FolderView  uid={uid} token={token} />}
-        {tab === "settings" && <Settings />}
+        {tab === "settings" && <Settings    uid={uid} token={token} />}
       </main>
     </div>
   );

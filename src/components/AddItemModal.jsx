@@ -1,6 +1,14 @@
+/**
+ * AddItemModal.jsx（Phase 3 更新版）
+ * Phase 3 追加：
+ *   - URL が PDF の場合、pdfjs-dist でテキストを自動抽出して content に設定
+ *   - 抽出中のプログレス表示
+ */
+
 import { useState } from "react";
 import * as api from "../lib/api.js";
 import { TYPE_META } from "../constants.js";
+import { extractPdfText } from "./PdfViewer.jsx";
 
 const OVERLAY = {
   position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)",
@@ -32,17 +40,19 @@ const BTN_G = {
 };
 
 function detectTypeClient({ source_url, file_url }) {
-  const imageExt = /\.(jpg|jpeg|png|gif|webp|svg)$/i;
-  const audioExt = /\.(mp3|wav|m4a|ogg|aac)$/i;
-  const pdfExt   = /\.pdf$/i;
-  const videoHosts = /youtube\.com|youtu\.be|vimeo\.com/i;
+  const imageExt  = /\.(jpg|jpeg|png|gif|webp|svg)$/i;
+  const audioExt  = /\.(mp3|wav|m4a|ogg|aac)$/i;
+  const pdfExt    = /\.pdf$/i;
+  const videoHosts = /youtube\.com|youtu\.be|vimeo\.com|loom\.com/i;
+
   if (file_url) {
-    if (imageExt.test(file_url)) return "image";
-    if (audioExt.test(file_url)) return "audio";
-    if (pdfExt.test(file_url))   return "pdf";
+    if (imageExt.test(file_url))  return "image";
+    if (audioExt.test(file_url))  return "audio";
+    if (pdfExt.test(file_url))    return "pdf";
   }
   if (source_url) {
-    if (videoHosts.test(source_url)) return "video_link";
+    if (pdfExt.test(source_url))       return "pdf";
+    if (videoHosts.test(source_url))   return "video_link";
     return "web_clip";
   }
   return "text";
@@ -53,10 +63,29 @@ export function AddItemModal({ uid, token, projectId, onClose, onCreated }) {
   const [content,    setContent]    = useState("");
   const [sourceUrl,  setSourceUrl]  = useState("");
   const [saving,     setSaving]     = useState(false);
+  const [extracting, setExtracting] = useState(false);
   const [error,      setError]      = useState(null);
 
   const detectedType = detectTypeClient({ source_url: sourceUrl, file_url: "" });
   const typeMeta = TYPE_META[detectedType] || {};
+  const isPdf = detectedType === "pdf";
+
+  /**
+   * PDF URL が確定したタイミングでテキストを抽出する
+   */
+  async function handleExtractPdf() {
+    if (!sourceUrl.trim() || !isPdf) return;
+    setExtracting(true);
+    setError(null);
+    try {
+      const text = await extractPdfText(sourceUrl.trim());
+      setContent(text);
+    } catch (e) {
+      setError(`PDF テキスト抽出失敗: ${e.message}`);
+    } finally {
+      setExtracting(false);
+    }
+  }
 
   async function handleSave() {
     if (!title.trim() && !content.trim() && !sourceUrl.trim()) {
@@ -86,9 +115,7 @@ export function AddItemModal({ uid, token, projectId, onClose, onCreated }) {
   return (
     <div style={OVERLAY} onClick={onClose}>
       <div style={DIALOG} onClick={e => e.stopPropagation()}>
-        <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 20 }}>
-          データを追加
-        </div>
+        <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 20 }}>データを追加</div>
 
         {sourceUrl.trim() && (
           <div style={{
@@ -100,20 +127,46 @@ export function AddItemModal({ uid, token, projectId, onClose, onCreated }) {
           </div>
         )}
 
+        {/* URL */}
         <div style={{ marginBottom: 14 }}>
-          <label style={LB}>URL（Webクリップ・動画リンク・PDFリンク）</label>
-          <input
-            style={INP}
-            type="url"
-            value={sourceUrl}
-            onChange={e => setSourceUrl(e.target.value)}
-            placeholder="https://..."
-          />
-          <div style={{ fontSize: 10, color: "#7A7769", marginTop: 3 }}>
-            URLを入力するとタイプが自動判定され、メタデータが自動取得されます
+          <label style={LB}>URL</label>
+          <div style={{ display: "flex", gap: 8 }}>
+            <input
+              style={{ ...INP, flex: 1 }}
+              type="url"
+              value={sourceUrl}
+              onChange={e => setSourceUrl(e.target.value)}
+              placeholder="https://..."
+            />
+            {/* PDF のときだけテキスト抽出ボタンを表示 */}
+            {isPdf && (
+              <button
+                type="button"
+                onClick={handleExtractPdf}
+                disabled={extracting || !sourceUrl.trim()}
+                style={{
+                  ...BTN_G,
+                  padding: "6px 12px", fontSize: 11,
+                  opacity: extracting ? 0.5 : 1, flexShrink: 0,
+                }}
+              >
+                {extracting ? "抽出中..." : "テキスト抽出"}
+              </button>
+            )}
           </div>
+          {isPdf && (
+            <div style={{ fontSize: 10, color: "#7A7769", marginTop: 3 }}>
+              「テキスト抽出」を押すと PDF の本文を自動取得してベクトル検索の対象になります
+            </div>
+          )}
+          {!isPdf && (
+            <div style={{ fontSize: 10, color: "#7A7769", marginTop: 3 }}>
+              URLを入力するとタイプが自動判定され、メタデータが自動取得されます
+            </div>
+          )}
         </div>
 
+        {/* タイトル */}
         <div style={{ marginBottom: 14 }}>
           <label style={LB}>タイトル</label>
           <input
@@ -125,13 +178,18 @@ export function AddItemModal({ uid, token, projectId, onClose, onCreated }) {
           />
         </div>
 
+        {/* 本文 */}
         <div style={{ marginBottom: 14 }}>
-          <label style={LB}>本文</label>
+          <label style={LB}>
+            {isPdf ? "抽出テキスト（自動設定 or 手動入力）" : "本文"}
+          </label>
           <textarea
             style={{ ...INP, minHeight: 120, resize: "vertical", lineHeight: 1.6 }}
             value={content}
             onChange={e => setContent(e.target.value)}
-            placeholder="メモ・Whimsicalのテキスト・Notionのエクスポート等を貼り付け"
+            placeholder={isPdf
+              ? "「テキスト抽出」ボタンで自動入力されます"
+              : "メモ・Whimsicalのテキスト・Notionのエクスポート等を貼り付け"}
           />
         </div>
 
@@ -144,7 +202,7 @@ export function AddItemModal({ uid, token, projectId, onClose, onCreated }) {
           <button
             style={{ ...BTN_P, opacity: saving ? 0.5 : 1 }}
             onClick={handleSave}
-            disabled={saving}
+            disabled={saving || extracting}
           >
             {saving ? "保存中..." : "Zeusに保存"}
           </button>
