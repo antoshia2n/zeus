@@ -26,6 +26,11 @@ function json(obj, status = 200) {
   });
 }
 
+// GET でアクセスされても SPA にフォールスルーしないよう 405 を返す
+export async function onRequestGet() {
+  return json({ error: "method_not_allowed", hint: "Use POST" }, 405);
+}
+
 export async function onRequestOptions() {
   return new Response(null, { status: 204, headers: CORS });
 }

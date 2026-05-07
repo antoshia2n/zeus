@@ -1,6 +1,12 @@
 /**
  * Settings.jsx
- * Phase 3 既存機能 + Notion同期（Phase 4 相当）追加
+ * Phase 3 既存機能 + Notion同期（Phase 4）追加
+ *
+ * 修正：
+ *   - 「全削除して同期」に確認ダイアログ追加
+ *   - token が undefined のとき早期リターン
+ *   - 同期中スピナー追加
+ *   - 全削除ボタンを赤系で危険さを明示
  */
 
 import { useState } from "react";
@@ -18,18 +24,41 @@ const lb = {
   textTransform: "uppercase", color: T.muted, marginBottom: 6, display: "block",
 };
 
+const SOURCE_LABELS = {
+  "notion-inbox":   "inbox",
+  "notion-input":   "インプットDB",
+  "notion-output":  "アウトプットDB",
+  "notion-asset":   "アセットDB",
+  "notion-project": "プロジェクトDB",
+};
+
 // ─── Notion 同期カード ──────────────────────────────────────────────────────────
 
 function NotionSyncCard({ token }) {
   const [state, setState] = useState({
     running:  false,
-    result:   null,   // { total_imported, by_source }
+    result:   null,
     error:    null,
     finished: false,
   });
 
   async function runSync(forceFullDelete) {
+    // token 未定義チェック
+    if (!token) {
+      setState({ running: false, result: null, error: "ログイン情報が取得できていません。再読み込みしてください。", finished: true });
+      return;
+    }
+
+    // 全削除は確認ダイアログ必須
+    if (forceFullDelete) {
+      const ok = window.confirm(
+        "全削除して同期：Zeus の全データを削除してから Notion を再取り込みします。\n\nこの操作は取り消せません。続けますか？"
+      );
+      if (!ok) return;
+    }
+
     setState({ running: true, result: null, error: null, finished: false });
+
     try {
       const res = await fetch("/api/ui/sync-from-notion", {
         method: "POST",
@@ -40,20 +69,16 @@ function NotionSyncCard({ token }) {
         body: JSON.stringify({ force_full: forceFullDelete }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data?.error || data?.detail || `HTTP ${res.status}`);
+      if (!res.ok) throw new Error(data?.detail || data?.error || `HTTP ${res.status}`);
       setState({ running: false, result: data, error: null, finished: true });
     } catch (e) {
       setState({ running: false, result: null, error: e.message, finished: true });
     }
   }
 
-  const SOURCE_LABELS = {
-    "notion-inbox":   "inbox",
-    "notion-input":   "インプットDB",
-    "notion-output":  "アウトプットDB",
-    "notion-asset":   "アセットDB",
-    "notion-project": "プロジェクトDB",
-  };
+  function reset() {
+    setState({ running: false, result: null, error: null, finished: false });
+  }
 
   const { running, result, error, finished } = state;
 
@@ -65,8 +90,9 @@ function NotionSyncCard({ token }) {
         Zeus pgvector に取り込みます。既存の notion-* アイテムは置き換えられます。
       </div>
 
+      {/* 初期状態：ボタン2つ */}
       {!running && !finished && (
-        <div style={{ display: "flex", gap: 8 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8, alignItems: "flex-start" }}>
           <button
             onClick={() => runSync(false)}
             style={{
@@ -80,68 +106,78 @@ function NotionSyncCard({ token }) {
           <button
             onClick={() => runSync(true)}
             style={{
-              padding: "8px 16px", fontSize: 12,
-              background: "transparent", border: `1px solid ${T.border}`,
-              borderRadius: 4, cursor: "pointer", color: T.muted,
+              padding: "6px 14px", fontSize: 11,
+              background: "transparent",
+              border: "1px solid #C0392B",
+              color: "#C0392B",
+              borderRadius: 4, cursor: "pointer",
             }}
           >
-            全削除して同期（初回用）
+            全削除して同期（初回移行専用）
           </button>
         </div>
       )}
 
+      {/* 同期中：スピナー + テキスト */}
       {running && (
-        <div style={{ fontSize: 12, color: T.muted, padding: "8px 0" }}>
-          同期中... Notion API → Voyage AI → Supabase の順に処理しています
+        <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0" }}>
+          <svg
+            width="16" height="16" viewBox="0 0 16 16"
+            style={{ animation: "spin 1s linear infinite", flexShrink: 0 }}
+          >
+            <style>{"@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }"}</style>
+            <circle cx="8" cy="8" r="6" fill="none" stroke={T.border} strokeWidth="2"/>
+            <path d="M8 2 A6 6 0 0 1 14 8" fill="none" stroke={T.text} strokeWidth="2" strokeLinecap="round"/>
+          </svg>
+          <span style={{ fontSize: 12, color: T.muted }}>
+            同期中... Notion → Voyage AI → Supabase の順に処理しています
+          </span>
         </div>
       )}
 
+      {/* 完了：件数表示 */}
       {finished && result && (
         <div>
-          <div style={{
-            fontSize: 13, fontWeight: 600, color: "#256E45", marginBottom: 10,
-          }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: "#256E45", marginBottom: 10 }}>
             完了：{result.total_imported} 件を取り込みました
           </div>
-          <div style={{
-            background: T.surface, borderRadius: 4, padding: 10, marginBottom: 10,
-          }}>
+          <div style={{ background: T.surface, borderRadius: 4, padding: "8px 12px", marginBottom: 10 }}>
             {Object.entries(result.by_source || {}).map(([src, count]) => (
-              <div key={src} style={{ fontSize: 12, lineHeight: 1.9, display: "flex", justifyContent: "space-between" }}>
+              <div key={src} style={{
+                fontSize: 12, lineHeight: 2,
+                display: "flex", justifyContent: "space-between",
+              }}>
                 <span style={{ color: T.muted }}>{SOURCE_LABELS[src] || src}</span>
                 <span style={{ fontWeight: 600 }}>{count} 件</span>
               </div>
             ))}
           </div>
-          <button
-            onClick={() => setState({ running: false, result: null, error: null, finished: false })}
-            style={{
-              padding: "6px 14px", fontSize: 11,
-              background: "transparent", border: `1px solid ${T.border}`,
-              borderRadius: 4, cursor: "pointer",
-            }}
-          >
+          <button onClick={reset} style={{
+            padding: "6px 14px", fontSize: 11,
+            background: "transparent", border: `1px solid ${T.border}`,
+            borderRadius: 4, cursor: "pointer",
+          }}>
             リセット
           </button>
         </div>
       )}
 
+      {/* エラー */}
       {finished && error && (
         <div>
           <div style={{
-            fontSize: 12, color: "#B8302A", background: "#FFF5F5",
-            border: "1px solid #FFCCC7", borderRadius: 4, padding: "8px 12px", marginBottom: 10,
+            fontSize: 12, color: "#B8302A",
+            background: "#FFF5F5", border: "1px solid #FFCCC7",
+            borderRadius: 4, padding: "8px 12px", marginBottom: 10,
+            wordBreak: "break-all",
           }}>
             エラー: {error}
           </div>
-          <button
-            onClick={() => setState({ running: false, result: null, error: null, finished: false })}
-            style={{
-              padding: "6px 14px", fontSize: 11,
-              background: "transparent", border: `1px solid ${T.border}`,
-              borderRadius: 4, cursor: "pointer",
-            }}
-          >
+          <button onClick={reset} style={{
+            padding: "6px 14px", fontSize: 11,
+            background: "transparent", border: `1px solid ${T.border}`,
+            borderRadius: 4, cursor: "pointer",
+          }}>
             リセット
           </button>
         </div>
@@ -177,7 +213,6 @@ export default function Settings({ uid, token }) {
         token
       );
       const pdfs = (res.items || []).filter(i => !i.content?.trim());
-
       setBatchState(s => ({ ...s, total: pdfs.length }));
 
       if (pdfs.length === 0) {
@@ -195,19 +230,15 @@ export default function Settings({ uid, token }) {
           setBatchState(s => ({ ...s, skipped: s.skipped + 1 }));
           continue;
         }
-
         try {
           addLog(`抽出中：${item.title || item.id}`);
           const text = await extractPdfText(pdfUrl);
-
           if (!text.trim()) {
             addLog(`スキップ：テキストなし → ${item.title || item.id}`);
             setBatchState(s => ({ ...s, skipped: s.skipped + 1 }));
             continue;
           }
-
           await api.items.update({ item_id: item.id, content: text.trim() }, token);
-
           addLog(`完了：${item.title || item.id}（${text.length.toLocaleString()} 文字）`);
           setBatchState(s => ({ ...s, done: s.done + 1 }));
         } catch (e) {
@@ -229,16 +260,15 @@ export default function Settings({ uid, token }) {
   return (
     <div style={{ maxWidth: 640, margin: "0 auto", padding: "24px 16px" }}>
 
-      {/* Notion 同期（新規追加） */}
+      {/* Notion 同期 */}
       <NotionSyncCard token={token} />
 
-      {/* Phase 3：PDF 再処理バッチ（既存） */}
+      {/* PDF 再処理バッチ（既存） */}
       <div style={card}>
         <label style={lb}>既存 PDF の再処理（テキスト抽出バッチ）</label>
         <div style={{ fontSize: 12, color: T.muted, lineHeight: 1.7, marginBottom: 14 }}>
-          Phase 1 以前に投入された PDF で `content` が空のものを対象に、
+          Phase 1 以前に投入された PDF で content が空のものを対象に、
           pdfjs-dist でテキストを抽出して保存します。
-          抽出後はベクトル検索の対象になります。
         </div>
 
         {!running && !finished && (
@@ -289,9 +319,7 @@ export default function Settings({ uid, token }) {
                 </div>
               ))}
               {running && (
-                <div style={{ fontSize: 10, color: "#7A7769" }}>
-                  処理中...
-                </div>
+                <div style={{ fontSize: 10, color: "#7A7769" }}>処理中...</div>
               )}
             </div>
 
