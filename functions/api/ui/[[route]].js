@@ -493,31 +493,43 @@ async function _nsUpsertProject(env, uid, name, desc) {
   return row.id;
 }
 
-async function handleSyncFromNotion(uid, body, env) {
+async function handleSyncNotionDb(uid, body, env) {
+  // body.source: "notion-inbox" | "notion-input" | ... （1DB指定）
+  // body.force_full: true = 対象DBのアイテムを全削除してから同期
   if(!env.NOTION_API_KEY)    return err("NOTION_API_KEY not configured",500);
   if(!env.VOYAGE_API_KEY)    return err("VOYAGE_API_KEY not configured",500);
   if(!env.VITE_SUPABASE_URL) return err("VITE_SUPABASE_URL not configured",500);
-  const nk=env.NOTION_API_KEY, ff=body.force_full===true;
+
+  const { source, force_full } = body;
+  const db = _NS_DBS.find(d => d.source === source);
+  if (!db) return err(`unknown source: ${source}`, 400);
+
+  const nk=env.NOTION_API_KEY;
   const supaUrl=env.VITE_SUPABASE_URL.replace(/\/$/,""), supaKey=env.VITE_SUPABASE_ANON_KEY;
-  const df=ff?`user_id=eq.${encodeURIComponent(uid)}`:`source_app=in.(${_NS_SOURCES})&user_id=eq.${encodeURIComponent(uid)}`;
-  await fetch(`${supaUrl}/rest/v1/zeus_items?${df}`,{method:"DELETE",headers:{"apikey":supaKey,"Authorization":`Bearer ${supaKey}`}});
-  const bySource={};let total=0;
-  for(const {source,dbId,label} of _NS_DBS){
-    const pid=await _nsUpsertProject(env,uid,source,`Notionナレッジ: ${label}`);
-    const pages=await _nsPages(nk,dbId);
-    if(!pages.length){bySource[source]=0;continue;}
-    const bmap=await _nsBlockMap(nk,pages.map(p=>p.id));
-    const rows=pages.map(p=>_nsBuild(source,uid,p,bmap.get(p.id)||""));
-    for(let i=0;i<rows.length;i+=20){
-      const batch=rows.slice(i,i+20);
-      let embs;try{embs=await _nsEmbed(batch.map(r=>`${r.title}\n\n${r.content}`),env);}catch(e){console.error(`[sync] embed ${source} ${i}:`,e.message);embs=batch.map(()=>null);}
-      batch.forEach((r,idx)=>{r.embedding=embs[idx];});
-    }
-    const ins=await _nsBulkInsert(env,"zeus_items",rows);
-    await _nsBulkInsert(env,"zeus_item_projects",ins.map(r=>({item_id:r.id,project_id:pid})));
-    bySource[source]=pages.length;total+=pages.length;
+
+  // 対象DBのアイテムを削除
+  await fetch(`${supaUrl}/rest/v1/zeus_items?source_app=eq.${source}&user_id=eq.${encodeURIComponent(uid)}`,
+    {method:"DELETE",headers:{"apikey":supaKey,"Authorization":`Bearer ${supaKey}`}});
+
+  const pid   = await _nsUpsertProject(env, uid, source, `Notionナレッジ: ${db.label}`);
+  const pages = await _nsPages(nk, db.dbId);
+  if (!pages.length) return json({ ok:true, source, imported:0 });
+
+  const bmap  = await _nsBlockMap(nk, pages.map(p=>p.id));
+  const rows  = pages.map(p => _nsBuild(source, uid, p, bmap.get(p.id)||""));
+
+  for(let i=0;i<rows.length;i+=20){
+    const batch=rows.slice(i,i+20);
+    let embs;
+    try { embs=await _nsEmbed(batch.map(r=>`${r.title}\n\n${r.content}`),env); }
+    catch(e){ console.error(`[sync] embed ${source} ${i}:`,e.message); embs=batch.map(()=>null); }
+    batch.forEach((r,idx)=>{ r.embedding=embs[idx]; });
   }
-  return json({ok:true,total_imported:total,by_source:bySource});
+
+  const ins = await _nsBulkInsert(env,"zeus_items",rows);
+  await _nsBulkInsert(env,"zeus_item_projects",ins.map(r=>({item_id:r.id,project_id:pid})));
+
+  return json({ ok:true, source, imported:pages.length });
 }
 
 
@@ -543,7 +555,7 @@ const ROUTES = {
   "list-projects-for-item": (uid, b, p, e) => handleListProjectsForItem(uid, p, e),
   "set-item-projects":      (uid, b, p, e) => handleSetItemProjects(uid, b, e),
   "search-items":           (uid, b, p, e) => handleSearchItems(uid, b, e),
-  "sync-from-notion":       (uid, b, p, e) => handleSyncFromNotion(uid, b, e),
+  "sync-notion-db":         (uid, b, p, e) => handleSyncNotionDb(uid, b, e),
 };
 
 export async function onRequest(context) {
