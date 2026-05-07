@@ -404,7 +404,7 @@ async function handleSearchItems(uid, body, env) {
 const _NS_DBS = [
   { source: "notion-inbox",   dbId: "31c9c6c1c439800f8093dd4e9dca241c", label: "inbox" },
   { source: "notion-input",   dbId: "31b9c6c1c43980b48b91d7128950f794", label: "インプットDB" },
-  { source: "notion-output",  dbId: "31b9c6c1c43980c5b8ccdf3b7fea572a", label: "アウトプットDB" },
+  { source: "notion-output",  dbId: "31b9c6c1c43980c5b8ccdf3b7fea572a", label: "アウトプットDB", skipBlocks: true },
   { source: "notion-asset",   dbId: "31b9c6c1c43980bd963fc2ca909feacb", label: "アセットDB" },
   { source: "notion-project", dbId: "31b9c6c1c4398069b884f0916da9e795", label: "プロジェクトDB" },
 ];
@@ -515,7 +515,7 @@ async function handleSyncNotionDb(uid, body, env) {
   const pages = await _nsPages(nk, db.dbId);
   if (!pages.length) return json({ ok:true, source, imported:0 });
 
-  const bmap  = await _nsBlockMap(nk, pages.map(p=>p.id));
+  const bmap  = db.skipBlocks ? new Map() : await _nsBlockMap(nk, pages.map(p=>p.id));
   const rows  = pages.map(p => _nsBuild(source, uid, p, bmap.get(p.id)||""));
 
   for(let i=0;i<rows.length;i+=20){
