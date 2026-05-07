@@ -140,7 +140,7 @@ function NotionSyncCard({ token }) {
                 </div>
                 <div style={{ fontSize: 11 }}>
                   {s.status === "done"  && <span style={{ color: "#256E45", fontWeight: 600 }}>{s.imported} 件</span>}
-                  {s.status === "error" && <span style={{ color: "#B8302A" }}>エラー</span>}
+                  {s.status === "error" && <span style={{ color: "#B8302A", fontSize: 10, maxWidth: 180, textAlign: "right", wordBreak: "break-all" }}>{s.error || "エラー"}</span>}
                   {s.status === "running" && <span style={{ color: "#2F54C8" }}>処理中...</span>}
                 </div>
               </div>
