@@ -399,6 +399,128 @@ async function handleSearchItems(uid, body, env) {
 
 // ─── ルーティング ─────────────────────────────────────────────────────────────
 
+// ─── Notion → Zeus 同期ハンドラ（v2: ページ本文取得対応）────────────────────────
+
+const _NS_DBS = [
+  { source: "notion-inbox",   dbId: "31c9c6c1c439800f8093dd4e9dca241c", label: "inbox" },
+  { source: "notion-input",   dbId: "31b9c6c1c43980b48b91d7128950f794", label: "インプットDB" },
+  { source: "notion-output",  dbId: "31b9c6c1c43980c5b8ccdf3b7fea572a", label: "アウトプットDB" },
+  { source: "notion-asset",   dbId: "31b9c6c1c43980bd963fc2ca909feacb", label: "アセットDB" },
+  { source: "notion-project", dbId: "31b9c6c1c4398069b884f0916da9e795", label: "プロジェクトDB" },
+];
+const _NS_SOURCES = _NS_DBS.map(d => d.source).join(",");
+
+function _nH(k) { return { "Authorization": `Bearer ${k}`, "Notion-Version": "2022-06-28", "Content-Type": "application/json" }; }
+
+async function _nsPages(nk, dbId) {
+  const pages = []; let cur;
+  do {
+    const b = { page_size: 100 }; if (cur) b.start_cursor = cur;
+    const r = await fetch(`https://api.notion.com/v1/databases/${dbId}/query`, { method:"POST", headers:_nH(nk), body:JSON.stringify(b) });
+    if (!r.ok) break;
+    const d = await r.json(); pages.push(...(d.results||[])); cur = d.has_more ? d.next_cursor : undefined;
+  } while (cur);
+  return pages;
+}
+
+function _nsBlockTxt(block) {
+  const t=block.type, b=block[t]; if(!b) return "";
+  const rt=["paragraph","heading_1","heading_2","heading_3","bulleted_list_item","numbered_list_item","toggle","quote","callout"];
+  if(rt.includes(t)) return (b.rich_text||[]).map(x=>x.plain_text).join("").trim();
+  if(t==="code") { const tx=(b.rich_text||[]).map(x=>x.plain_text).join("").trim(); return tx?`\`\`\`\n${tx}\n\`\`\``:""; }
+  if(t==="divider") return "---";
+  return "";
+}
+
+async function _nsPageTxt(nk, pid) {
+  const lines=[]; let cur;
+  do {
+    const url=`https://api.notion.com/v1/blocks/${pid}/children?page_size=100${cur?`&start_cursor=${cur}`:""}`;
+    const r=await fetch(url,{headers:_nH(nk)}); if(!r.ok) break;
+    const d=await r.json(); for(const b of(d.results||[])){const tx=_nsBlockTxt(b);if(tx)lines.push(tx);} cur=d.has_more?d.next_cursor:undefined;
+  } while(cur);
+  return lines.join("\n").trim();
+}
+
+async function _nsBlockMap(nk, ids) {
+  const map=new Map();
+  for(let i=0;i<ids.length;i+=3){
+    const chunk=ids.slice(i,i+3);
+    const txts=await Promise.all(chunk.map(id=>_nsPageTxt(nk,id).catch(()=>"")));
+    chunk.forEach((id,idx)=>map.set(id,txts[idx]));
+  }
+  return map;
+}
+
+function _nsTitle(props) { for(const v of Object.values(props)){if(v?.type==="title")return(v.title||[]).map(t=>t.plain_text).join("").trim();} return ""; }
+function _nsRT(f){return(f?.rich_text||[]).map(t=>t.plain_text).join("").trim();}
+function _nsSel(f){return f?.select?.name||"";}
+function _nsMSel(f){return(f?.multi_select||[]).map(o=>o.name);}
+
+function _nsBuild(src, uid, page, blockTxt) {
+  const props=page.properties||{}, title=_nsTitle(props)||"（無題）", meta=[];
+  if(src==="notion-inbox"){const g=_nsMSel(props["ジャンル"]),tp=_nsMSel(props["タイプ"]);if(g.length)meta.push(`ジャンル: ${g.join(", ")}`);if(tp.length)meta.push(`タイプ: ${tp.join(", ")}`);}
+  else if(src==="notion-input"){const st=_nsSel(props["source_type"]),tg=_nsMSel(props["topic_tag"]);if(st)meta.push(`種別: ${st}`);if(tg.length)meta.push(`タグ: ${tg.join(", ")}`);}
+  else if(src==="notion-output"){const md=_nsMSel(props["media"]),st=_nsSel(props["status"]),tg=_nsMSel(props["topic_tag"]),hb=_nsRT(props["本文"]);if(st)meta.push(`ステータス: ${st}`);if(md.length)meta.push(`メディア: ${md.join(", ")}`);if(tg.length)meta.push(`タグ: ${tg.join(", ")}`);if(hb)meta.push(hb);}
+  else if(src==="notion-asset"){const at=_nsSel(props["asset_type"]),tg=_nsMSel(props["topic_tag"]);if(at)meta.push(`種別: ${at}`);if(tg.length)meta.push(`タグ: ${tg.join(", ")}`);}
+  else if(src==="notion-project"){const st=_nsSel(props["status"]),ar=_nsSel(props["事業領域"]),gl=_nsRT(props["goal"]);if(st)meta.push(`ステータス: ${st}`);if(ar)meta.push(`事業領域: ${ar}`);if(gl)meta.push(`ゴール: ${gl}`);}
+  const parts=[]; if(blockTxt)parts.push(blockTxt); if(meta.length)parts.push(meta.join("\n"));
+  return { user_id:uid, item_type:"text", title, content:parts.join("\n\n")||title, source_app:src, source_url:null, file_url:null, metadata:{notion_page_id:page.id}, embedding:null, folder_id:null };
+}
+
+async function _nsEmbed(texts, env) {
+  const r=await fetch("https://api.voyageai.com/v1/embeddings",{method:"POST",headers:{"Authorization":`Bearer ${env.VOYAGE_API_KEY}`,"Content-Type":"application/json"},body:JSON.stringify({model:"voyage-3.5",input:texts.map(t=>(t||"").slice(0,120000)),input_type:"document",output_dimension:1024})});
+  if(!r.ok) throw new Error(`Voyage ${r.status}`);
+  return (await r.json()).data.map(d=>d.embedding);
+}
+
+async function _nsBulkInsert(env, table, rows) {
+  if(!rows.length) return [];
+  const url=env.VITE_SUPABASE_URL.replace(/\/$/,""), key=env.VITE_SUPABASE_ANON_KEY, out=[];
+  for(let i=0;i<rows.length;i+=50){
+    const batch=rows.slice(i,i+50);
+    const r=await fetch(`${url}/rest/v1/${table}`,{method:"POST",headers:{"Content-Type":"application/json","apikey":key,"Authorization":`Bearer ${key}`,"Prefer":"return=representation"},body:JSON.stringify(batch)});
+    if(!r.ok){const d=await r.text().catch(()=>"");throw new Error(`INSERT ${table}: ${r.status} ${d.slice(0,200)}`);}
+    const d=await r.json(); out.push(...(Array.isArray(d)?d:[d]));
+  }
+  return out;
+}
+
+async function _nsUpsertProject(env, uid, name, desc) {
+  const ex=await dbSelect(env,"zeus_projects",`user_id=eq.${encodeURIComponent(uid)}&name=eq.${encodeURIComponent(name)}&select=id`);
+  if(ex.length>0) return ex[0].id;
+  const row=await dbInsert(env,"zeus_projects",{user_id:uid,name,description:desc});
+  return row.id;
+}
+
+async function handleSyncFromNotion(uid, body, env) {
+  if(!env.NOTION_API_KEY)    return err("NOTION_API_KEY not configured",500);
+  if(!env.VOYAGE_API_KEY)    return err("VOYAGE_API_KEY not configured",500);
+  if(!env.VITE_SUPABASE_URL) return err("VITE_SUPABASE_URL not configured",500);
+  const nk=env.NOTION_API_KEY, ff=body.force_full===true;
+  const supaUrl=env.VITE_SUPABASE_URL.replace(/\/$/,""), supaKey=env.VITE_SUPABASE_ANON_KEY;
+  const df=ff?`user_id=eq.${encodeURIComponent(uid)}`:`source_app=in.(${_NS_SOURCES})&user_id=eq.${encodeURIComponent(uid)}`;
+  await fetch(`${supaUrl}/rest/v1/zeus_items?${df}`,{method:"DELETE",headers:{"apikey":supaKey,"Authorization":`Bearer ${supaKey}`}});
+  const bySource={};let total=0;
+  for(const {source,dbId,label} of _NS_DBS){
+    const pid=await _nsUpsertProject(env,uid,source,`Notionナレッジ: ${label}`);
+    const pages=await _nsPages(nk,dbId);
+    if(!pages.length){bySource[source]=0;continue;}
+    const bmap=await _nsBlockMap(nk,pages.map(p=>p.id));
+    const rows=pages.map(p=>_nsBuild(source,uid,p,bmap.get(p.id)||""));
+    for(let i=0;i<rows.length;i+=20){
+      const batch=rows.slice(i,i+20);
+      let embs;try{embs=await _nsEmbed(batch.map(r=>`${r.title}\n\n${r.content}`),env);}catch(e){console.error(`[sync] embed ${source} ${i}:`,e.message);embs=batch.map(()=>null);}
+      batch.forEach((r,idx)=>{r.embedding=embs[idx];});
+    }
+    const ins=await _nsBulkInsert(env,"zeus_items",rows);
+    await _nsBulkInsert(env,"zeus_item_projects",ins.map(r=>({item_id:r.id,project_id:pid})));
+    bySource[source]=pages.length;total+=pages.length;
+  }
+  return json({ok:true,total_imported:total,by_source:bySource});
+}
+
+
 const ROUTES = {
   "create-project":         (uid, b, p, e) => handleCreateProject(uid, b, e),
   "list-projects":          (uid, b, p, e) => handleListProjects(uid, p, e),
@@ -421,6 +543,7 @@ const ROUTES = {
   "list-projects-for-item": (uid, b, p, e) => handleListProjectsForItem(uid, p, e),
   "set-item-projects":      (uid, b, p, e) => handleSetItemProjects(uid, b, e),
   "search-items":           (uid, b, p, e) => handleSearchItems(uid, b, e),
+  "sync-from-notion":       (uid, b, p, e) => handleSyncFromNotion(uid, b, e),
 };
 
 export async function onRequest(context) {
