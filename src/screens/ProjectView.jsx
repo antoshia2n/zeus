@@ -1,8 +1,9 @@
 /**
- * ProjectView.jsx（Phase 3 更新版）
- * Phase 3 変更点：
- *   - 右ペインを ItemDetailView コンポーネントに差し替え（タイプ別ビュー対応）
- *   - 一覧カードに YouTube サムネイルを追加
+ * ProjectView.jsx（バグ修正版）
+ *
+ * 修正:
+ *   1. ItemDetailView に key={selectedItem.id} 追加 → カード切替で右パネルが更新されない問題を解消
+ *   2. handleSearch にエラー state 追加 → 検索失敗が無音で消えていた問題を解消
  */
 
 import { useState, useCallback } from "react";
@@ -41,6 +42,7 @@ export default function ProjectView({ uid, token }) {
   const [typeFilter,    setTypeFilter]    = useState(null);
   const [searchQuery,   setSearchQuery]   = useState("");
   const [searchResults, setSearchResults] = useState(null);
+  const [searchError,   setSearchError]   = useState(null);   // ← 追加
   const [searching,     setSearching]     = useState(false);
   const [showAddModal,  setShowAddModal]  = useState(false);
   const [addParentId,   setAddParentId]   = useState(null);
@@ -57,6 +59,7 @@ export default function ProjectView({ uid, token }) {
     setSelectedProject(proj);
     setSelectedItem(null);
     setSearchResults(null);
+    setSearchError(null);
     setSearchQuery("");
   }
 
@@ -64,6 +67,7 @@ export default function ProjectView({ uid, token }) {
     setSelectedProject(null);
     setSelectedItem(null);
     setSearchResults(null);
+    setSearchError(null);
     setSearchQuery("");
   }
 
@@ -77,8 +81,9 @@ export default function ProjectView({ uid, token }) {
 
   async function handleSearch(e) {
     e.preventDefault();
-    if (!searchQuery.trim()) { setSearchResults(null); return; }
+    if (!searchQuery.trim()) { setSearchResults(null); setSearchError(null); return; }
     setSearching(true);
+    setSearchError(null);
     try {
       const body = {
         user_id: uid,
@@ -87,8 +92,20 @@ export default function ProjectView({ uid, token }) {
       };
       const res = await api.search.items(body, token);
       setSearchResults(res.items || []);
-    } catch (e) { console.error("search error", e); }
-    finally { setSearching(false); }
+    } catch (e) {
+      // ← エラーを state に保持して表示する（以前は console.error のみで無音だった）
+      console.error("search error", e);
+      setSearchError(e.message || "検索に失敗しました");
+      setSearchResults(null);
+    } finally {
+      setSearching(false);
+    }
+  }
+
+  function handleClearSearch() {
+    setSearchResults(null);
+    setSearchError(null);
+    setSearchQuery("");
   }
 
   async function handleAddProject(parentId = null) {
@@ -241,16 +258,27 @@ export default function ProjectView({ uid, token }) {
             >
               {searching ? "..." : "検索"}
             </button>
-            {searchResults && (
+            {(searchResults !== null || searchError) && (
               <button
                 type="button"
                 style={{ padding: "6px 10px", fontSize: 12, background: "transparent", border: `1px solid ${T.border}`, borderRadius: 4, cursor: "pointer" }}
-                onClick={() => { setSearchResults(null); setSearchQuery(""); }}
+                onClick={handleClearSearch}
               >
                 ✕
               </button>
             )}
           </form>
+
+          {/* 検索エラー表示 ← 追加 */}
+          {searchError && (
+            <div style={{
+              fontSize: 11, color: "#B8302A", background: "#FFF5F5",
+              border: "1px solid #FFCCC7", borderRadius: 4,
+              padding: "5px 10px", marginBottom: 8,
+            }}>
+              {searchError}
+            </div>
+          )}
 
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
             <button
@@ -277,7 +305,7 @@ export default function ProjectView({ uid, token }) {
         </div>
 
         <div style={{ flex: 1, overflowY: "auto", padding: "8px 12px" }}>
-          {searchResults && (
+          {searchResults !== null && (
             <div style={{ fontSize: 11, color: T.muted, marginBottom: 8 }}>
               検索結果: {searchResults.length} 件
             </div>
@@ -304,15 +332,11 @@ export default function ProjectView({ uid, token }) {
                   }}
                   onClick={() => handleSelectItem(item)}
                 >
-                  {/* YouTube サムネイル */}
                   {ytThumb && (
                     <img
                       src={ytThumb}
                       alt=""
-                      style={{
-                        width: "100%", height: 80, objectFit: "cover",
-                        borderRadius: 4, marginBottom: 8, display: "block",
-                      }}
+                      style={{ width: "100%", height: 80, objectFit: "cover", borderRadius: 4, marginBottom: 8, display: "block" }}
                       onError={e => { e.target.style.display = "none"; }}
                     />
                   )}
@@ -329,17 +353,11 @@ export default function ProjectView({ uid, token }) {
                       {formatDate(item.updated_at)}
                     </span>
                   </div>
-                  <div style={{
-                    fontSize: 13, fontWeight: 600, marginBottom: 3,
-                    overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-                  }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                     {item.title || "(無題)"}
                   </div>
                   {item.content && (
-                    <div style={{
-                      fontSize: 11, color: T.muted,
-                      overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-                    }}>
+                    <div style={{ fontSize: 11, color: T.muted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                       {item.content}
                     </div>
                   )}
@@ -350,10 +368,14 @@ export default function ProjectView({ uid, token }) {
         </div>
       </div>
 
-      {/* 右ペイン（Phase 3: ItemDetailView に差し替え） */}
+      {/* 右ペイン
+          ↓ key={selectedItem.id} を追加。
+            これにより選択アイテムが変わるたびに ItemDetailView が再マウントされ、
+            useState (title/content) が新しいアイテムの値で初期化される。 */}
       {selectedItem && !isMobile && (
         <div style={{ ...PANE_R, overflowY: "auto" }}>
           <ItemDetailView
+            key={selectedItem.id}
             uid={uid}
             token={token}
             item={selectedItem}

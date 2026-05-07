@@ -1,8 +1,10 @@
 /**
- * ItemDetailView.jsx
- * Phase 3：データタイプ別ビュー統合。
- * Phase 1 の ItemDetail（ProjectView.jsx インライン定義）を独立コンポーネントに昇格。
- * 罠 #2 対応：Phase 1 でインライン定義していた ItemDetail をここに移動。
+ * ItemDetailView.jsx（バグ修正版）
+ *
+ * 修正:
+ *   - Notion由来のアイテム（metadata.notion_page_id あり）にNotionリンクを表示
+ *   - contentのtextareaを全文表示（行数制限を解除）
+ *   - Notion同期アイテムは編集不可の注記を表示（次回同期で上書きされるため）
  */
 
 import { useState } from "react";
@@ -31,11 +33,25 @@ const TYPE_ICONS = {
   audio:      "🎵",
 };
 
+const SOURCE_LABELS = {
+  "notion-inbox":   "Notion inbox",
+  "notion-input":   "Notion インプットDB",
+  "notion-output":  "Notion アウトプットDB",
+  "notion-asset":   "Notion アセットDB",
+  "notion-project": "Notion プロジェクトDB",
+};
+
 function formatDate(d) {
   if (!d) return "";
   return new Date(d).toLocaleString("ja-JP", {
     month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit",
   });
+}
+
+// Notion page UUID → URL
+function notionPageUrl(pageId) {
+  if (!pageId) return null;
+  return `https://www.notion.so/${pageId.replace(/-/g, "")}`;
 }
 
 const S = {
@@ -56,9 +72,6 @@ const S = {
   section: { marginBottom: 14 },
 };
 
-/**
- * タイプ別のメインビュー部分
- */
 function TypedViewer({ item }) {
   const pdfUrl = item.file_url || (item.item_type === "pdf" ? item.source_url : null);
 
@@ -93,11 +106,7 @@ function TypedViewer({ item }) {
       return (
         <div style={S.section}>
           <label style={S.lb}>動画</label>
-          <VideoPlayer
-            url={item.source_url}
-            title={item.title}
-            metadata={item.metadata}
-          />
+          <VideoPlayer url={item.source_url} title={item.title} metadata={item.metadata} />
         </div>
       );
 
@@ -116,10 +125,7 @@ function TypedViewer({ item }) {
           <img
             src={item.file_url || item.source_url}
             alt={item.title || ""}
-            style={{
-              maxWidth: "100%", borderRadius: 4,
-              border: `1px solid ${T.border}`, display: "block",
-            }}
+            style={{ maxWidth: "100%", borderRadius: 4, border: `1px solid ${T.border}`, display: "block" }}
             onError={e => { e.target.style.display = "none"; }}
           />
         </div>
@@ -129,11 +135,7 @@ function TypedViewer({ item }) {
       return item.file_url || item.source_url ? (
         <div style={S.section}>
           <label style={S.lb}>音声</label>
-          <audio
-            controls
-            src={item.file_url || item.source_url}
-            style={{ width: "100%" }}
-          />
+          <audio controls src={item.file_url || item.source_url} style={{ width: "100%" }} />
         </div>
       ) : null;
 
@@ -142,19 +144,21 @@ function TypedViewer({ item }) {
   }
 }
 
-/**
- * ItemDetailView
- * props: { uid, token, item, projects, onSaved, onDeleted }
- */
 export function ItemDetailView({ uid, token, item, projects, onSaved, onDeleted }) {
   const [title,   setTitle]   = useState(item.title   ?? "");
   const [content, setContent] = useState(item.content ?? "");
   const [saving,  setSaving]  = useState(false);
   const [msg,     setMsg]     = useState(null);
 
-  const typeLabel = TYPE_LABELS[item.item_type] || item.item_type;
-  const typeIcon  = TYPE_ICONS[item.item_type]  || "📎";
-  const isTextEditable = item.item_type === "text" || item.item_type === "pdf";
+  const typeLabel  = TYPE_LABELS[item.item_type] || item.item_type;
+  const typeIcon   = TYPE_ICONS[item.item_type]  || "📎";
+  const isNotion   = item.source_app?.startsWith("notion-");
+  const notionUrl  = notionPageUrl(item.metadata?.notion_page_id);
+  const sourceLabel = SOURCE_LABELS[item.source_app] || item.source_app;
+
+  // Notionアイテムは内容編集不可（次回同期で上書きされる）
+  // textとpdfのみ編集可、ただしNotionアイテムは除く
+  const isTextEditable = !isNotion && (item.item_type === "text" || item.item_type === "pdf");
 
   async function handleSave() {
     setSaving(true);
@@ -183,38 +187,86 @@ export function ItemDetailView({ uid, token, item, projects, onSaved, onDeleted 
   return (
     <div style={S.root}>
       {/* バッジ */}
-      <div style={S.badge}>{typeIcon} {typeLabel}</div>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10, flexWrap: "wrap" }}>
+        <span style={S.badge}>{typeIcon} {typeLabel}</span>
+        {isNotion && (
+          <span style={{
+            ...S.badge,
+            background: "#EBF5FF", color: "#2F54C8",
+          }}>
+            {sourceLabel}
+          </span>
+        )}
+      </div>
+
+      {/* Notion リンク（Notion由来のアイテムのみ表示） */}
+      {notionUrl && (
+        <div style={{ ...S.section }}>
+          <label style={S.lb}>NOTION で開く</label>
+          <a
+            href={notionUrl}
+            target="_blank"
+            rel="noreferrer"
+            style={{
+              display: "inline-flex", alignItems: "center", gap: 6,
+              fontSize: 12, color: "#2F54C8",
+              padding: "5px 10px", border: "1px solid #BFD7FF",
+              borderRadius: 4, background: "#EBF5FF", textDecoration: "none",
+            }}
+          >
+            Notionページを開く
+          </a>
+          <div style={{ fontSize: 10, color: T.muted, marginTop: 4 }}>
+            ※ 編集はNotionで行い、Zeusで同期してください
+          </div>
+        </div>
+      )}
 
       {/* タイプ別ビュー */}
       <TypedViewer item={item} />
 
-      {/* タイトル（全タイプ共通） */}
+      {/* タイトル */}
       <div style={S.section}>
         <label style={S.lb}>TITLE</label>
-        <input
-          style={S.inp}
-          value={title}
-          onChange={e => setTitle(e.target.value)}
-          placeholder="(無題)"
-        />
+        {isNotion ? (
+          <div style={{ fontSize: 14, fontWeight: 600, wordBreak: "break-word" }}>
+            {item.title || "(無題)"}
+          </div>
+        ) : (
+          <input
+            style={S.inp}
+            value={title}
+            onChange={e => setTitle(e.target.value)}
+            placeholder="(無題)"
+          />
+        )}
       </div>
 
-      {/* テキスト本文（text / pdf のみ） */}
-      {isTextEditable && (
-        <div style={S.section}>
-          <label style={S.lb}>
-            {item.item_type === "pdf" ? "抽出テキスト（編集可）" : "CONTENT"}
-          </label>
+      {/* CONTENT（全文表示） */}
+      <div style={S.section}>
+        <label style={S.lb}>CONTENT</label>
+        {isNotion ? (
+          // Notionアイテムは読み取り専用で全文表示
+          <div style={{
+            fontSize: 12, lineHeight: 1.8, color: T.text,
+            whiteSpace: "pre-wrap", wordBreak: "break-word",
+            background: T.surface, border: `1px solid ${T.border}`,
+            borderRadius: 4, padding: "8px 10px",
+            maxHeight: 400, overflowY: "auto",
+          }}>
+            {item.content || "(本文なし)"}
+          </div>
+        ) : isTextEditable ? (
           <textarea
-            style={{ ...S.inp, minHeight: 120, resize: "vertical", lineHeight: 1.6 }}
+            style={{ ...S.inp, minHeight: 160, resize: "vertical", lineHeight: 1.6 }}
             value={content}
             onChange={e => setContent(e.target.value)}
           />
-        </div>
-      )}
+        ) : null}
+      </div>
 
-      {/* SOURCE URL */}
-      {item.source_url && (
+      {/* SOURCE URL（Notion以外） */}
+      {!isNotion && item.source_url && (
         <div style={S.section}>
           <label style={S.lb}>SOURCE URL</label>
           <div style={S.meta}>
@@ -255,19 +307,21 @@ export function ItemDetailView({ uid, token, item, projects, onSaved, onDeleted 
         </div>
       )}
 
-      {/* ボタン */}
+      {/* ボタン（Notionアイテムは保存ボタン非表示） */}
       <div style={{ display: "flex", gap: 8 }}>
-        <button
-          onClick={handleSave}
-          disabled={saving}
-          style={{
-            padding: "7px 16px", fontSize: 12, fontWeight: 600,
-            background: "#1C1B18", color: "#FFF",
-            border: "none", borderRadius: 4, cursor: "pointer", opacity: saving ? 0.5 : 1,
-          }}
-        >
-          {saving ? "保存中..." : "保存"}
-        </button>
+        {!isNotion && (
+          <button
+            onClick={handleSave}
+            disabled={saving}
+            style={{
+              padding: "7px 16px", fontSize: 12, fontWeight: 600,
+              background: "#1C1B18", color: "#FFF",
+              border: "none", borderRadius: 4, cursor: "pointer", opacity: saving ? 0.5 : 1,
+            }}
+          >
+            {saving ? "保存中..." : "保存"}
+          </button>
+        )}
         <button
           onClick={handleDelete}
           style={{
