@@ -1,13 +1,30 @@
 /**
  * Cloudflare Workers / Pages Functions 向け Supabase REST クライアント
  * ブラウザ向けの @supabase/supabase-js は Workers 環境では使わない
+ *
+ * 2026-07-31 変更：公開キー（VITE_SUPABASE_ANON_KEY）から管理者キーへ切り替え。
+ *   正本：2026-07-30 決定「画面は公開キーでデータベースに直接触らない」
+ *         https://www.notion.so/3ad9c6c1c439811aadd3e0be32827b62
+ *   ここはブラウザではなくサーバー側の処理なので、管理者キーを使ってよい場所。
+ *   管理者キーは Cloudflare の設定にのみ存在し、ブラウザには渡らない。
+ *
+ *   公開キーへの自動フォールバックは意図的に入れていない。
+ *   キーが無いまま黙って動き続けると、権限を外した瞬間に
+ *   「エラーも出さずに0件を返す」状態になるため（2026-07-29 の Zeus 全面停止と同じ症状）。
  */
 
 function getSupaConfig(env) {
-  const url = env.VITE_SUPABASE_URL;
-  const key = env.VITE_SUPABASE_ANON_KEY;
-  if (!url || !key) throw new Error("Supabase env vars not configured");
-  return { url: url.replace(/\/$/, ""), key };
+  const url = (env.SUPABASE_URL || env.VITE_SUPABASE_URL || "").replace(/\/$/, "");
+  const key = env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!url) throw new Error("Supabase URL not configured (SUPABASE_URL / VITE_SUPABASE_URL)");
+  if (!key) {
+    throw new Error(
+      "SUPABASE_SERVICE_ROLE_KEY not configured. " +
+      "Cloudflare の設定に管理者キーを追加してください。",
+    );
+  }
+  return { url, key };
 }
 
 function headers(key) {
@@ -107,4 +124,19 @@ export async function dbRpc(env, fn, params) {
     throw new Error(`supabase RPC ${fn} ${res.status}: ${body.slice(0, 300)}`);
   }
   return res.json();
+}
+
+/**
+ * 設定の有無だけを返す（値は返さない）。確認用ページから使う。
+ */
+export function checkSupaConfig(env) {
+  const url = env.SUPABASE_URL || env.VITE_SUPABASE_URL || "";
+  const key = env.SUPABASE_SERVICE_ROLE_KEY || "";
+  const missing = [];
+  if (!url) missing.push("データベースの住所");
+  if (!key) missing.push("管理者キー");
+  return {
+    ok: missing.length === 0,
+    detail: missing.length ? `設定が足りません：${missing.join(" / ")}` : "設定あり",
+  };
 }
