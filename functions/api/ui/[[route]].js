@@ -6,7 +6,7 @@
  * Firebase ID トークンを検証して uid を取り出し、同じハンドラを呼ぶ。
  */
 
-import { dbSelect, dbInsert, dbUpdate, dbDelete, dbRpc } from "../../_shared/supabase.js";
+import { dbSelect, dbInsert, dbInsertMany, dbUpdate, dbDelete, dbRpc, checkSupaConfig } from "../../_shared/supabase.js";
 import { generateItemEmbedding, generateEmbedding } from "../../_shared/embedding.js";
 import { detectItemType } from "../../_shared/item-type-detector.js";
 import { fetchOgMeta, extractYouTubeId } from "../../_shared/og-fetch.js";
@@ -474,17 +474,8 @@ async function _nsEmbed(texts, env) {
   return (await r.json()).data.map(d=>d.embedding);
 }
 
-async function _nsBulkInsert(env, table, rows) {
-  if(!rows.length) return [];
-  const url=env.VITE_SUPABASE_URL.replace(/\/$/,""), key=env.VITE_SUPABASE_ANON_KEY, out=[];
-  for(let i=0;i<rows.length;i+=50){
-    const batch=rows.slice(i,i+50);
-    const r=await fetch(`${url}/rest/v1/${table}`,{method:"POST",headers:{"Content-Type":"application/json","apikey":key,"Authorization":`Bearer ${key}`,"Prefer":"return=representation"},body:JSON.stringify(batch)});
-    if(!r.ok){const d=await r.text().catch(()=>"");throw new Error(`INSERT ${table}: ${r.status} ${d.slice(0,200)}`);}
-    const d=await r.json(); out.push(...(Array.isArray(d)?d:[d]));
-  }
-  return out;
-}
+// 2026-08-09：ここにあった _nsBulkInsert（公開キーで直接 INSERT）は撤去した。
+//   まとめて追加する処理は _shared/supabase.js の dbInsertMany（管理者キー経由）へ寄せている。
 
 async function _nsUpsertProject(env, uid, name, desc) {
   const ex=await dbSelect(env,"zeus_projects",`user_id=eq.${encodeURIComponent(uid)}&name=eq.${encodeURIComponent(name)}&select=id`);
@@ -496,20 +487,26 @@ async function _nsUpsertProject(env, uid, name, desc) {
 async function handleSyncNotionDb(uid, body, env) {
   // body.source: "notion-inbox" | "notion-input" | ... （1DB指定）
   // body.force_full: true = 対象DBのアイテムを全削除してから同期
-  if(!env.NOTION_API_KEY)    return err("NOTION_API_KEY not configured",500);
-  if(!env.VOYAGE_API_KEY)    return err("VOYAGE_API_KEY not configured",500);
-  if(!env.VITE_SUPABASE_URL) return err("VITE_SUPABASE_URL not configured",500);
+  if(!env.NOTION_API_KEY) return err("NOTION_API_KEY not configured",500);
+  if(!env.VOYAGE_API_KEY) return err("VOYAGE_API_KEY not configured",500);
+
+  // 2026-08-09：データベース側の設定確認を、共通の仕組みと同じ判定に揃える。
+  //   以前は住所の有無しか見ておらず、管理者キーが無いまま先へ進めていた。
+  const supaCheck = checkSupaConfig(env);
+  if (!supaCheck.ok) return err(supaCheck.detail, 500);
 
   const { source, force_full } = body;
   const db = _NS_DBS.find(d => d.source === source);
   if (!db) return err(`unknown source: ${source}`, 400);
 
   const nk=env.NOTION_API_KEY;
-  const supaUrl=env.VITE_SUPABASE_URL.replace(/\/$/,""), supaKey=env.VITE_SUPABASE_ANON_KEY;
 
   // 対象DBのアイテムを削除
-  await fetch(`${supaUrl}/rest/v1/zeus_items?source_app=eq.${source}&user_id=eq.${encodeURIComponent(uid)}`,
-    {method:"DELETE",headers:{"apikey":supaKey,"Authorization":`Bearer ${supaKey}`}});
+  // 2026-08-09：公開キーでの直接呼び出しをやめ、管理者キー経由（dbDelete）へ寄せた。
+  //   以前はここが権限不足で黙って失敗し、次の追加でエラーになっていた。
+  //   dbDelete は失敗すると例外を投げるため、失敗が握りつぶされない。
+  await dbDelete(env, "zeus_items",
+    `source_app=eq.${source}&user_id=eq.${encodeURIComponent(uid)}`);
 
   const pid   = await _nsUpsertProject(env, uid, source, `Notionナレッジ: ${db.label}`);
   const pages = await _nsPages(nk, db.dbId);
@@ -526,8 +523,8 @@ async function handleSyncNotionDb(uid, body, env) {
     batch.forEach((r,idx)=>{ r.embedding=embs[idx]; });
   }
 
-  const ins = await _nsBulkInsert(env,"zeus_items",rows);
-  await _nsBulkInsert(env,"zeus_item_projects",ins.map(r=>({item_id:r.id,project_id:pid})));
+  const ins = await dbInsertMany(env,"zeus_items",rows);
+  await dbInsertMany(env,"zeus_item_projects",ins.map(r=>({item_id:r.id,project_id:pid})));
 
   return json({ ok:true, source, imported:pages.length });
 }

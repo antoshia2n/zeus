@@ -75,6 +75,41 @@ export async function dbInsert(env, table, row) {
 }
 
 /**
+ * REST: INSERT（複数件・分割送信）
+ *
+ * 2026-08-09 追加：Notion 取り込みが公開キーで直接 INSERT していたため、
+ *   ここへ寄せて管理者キー経由に統一する。
+ *   1回のリクエストが大きくなりすぎないよう既定 50 件ずつに分ける
+ *   （分ける件数は元の実装と同じ）。
+ *
+ * @param {Env} env
+ * @param {string} table
+ * @param {any[]} rows
+ * @param {number} batchSize
+ * @returns {Promise<any[]>} 挿入されたレコードの配列
+ */
+export async function dbInsertMany(env, table, rows, batchSize = 50) {
+  if (!Array.isArray(rows) || rows.length === 0) return [];
+  const { url, key } = getSupaConfig(env);
+  const out = [];
+  for (let i = 0; i < rows.length; i += batchSize) {
+    const batch = rows.slice(i, i + batchSize);
+    const res = await fetch(`${url}/rest/v1/${table}`, {
+      method:  "POST",
+      headers: headers(key),
+      body:    JSON.stringify(batch),
+    });
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      throw new Error(`supabase INSERT ${table} ${res.status}: ${body.slice(0, 300)}`);
+    }
+    const data = await res.json();
+    out.push(...(Array.isArray(data) ? data : [data]));
+  }
+  return out;
+}
+
+/**
  * REST: PATCH（条件指定 UPDATE）
  * @param {string} filter - 例: "id=eq.xxx"
  */
