@@ -25,7 +25,7 @@ export async function onRequestGet({ env }) {
     const key = env.SUPABASE_SERVICE_ROLE_KEY;
     try {
       const res = await fetch(`${url}/rest/v1/zeus_items?select=id&limit=1`, {
-        headers: { apikey: key, Authorization: `Bearer ${key}` },
+        headers: { apikey: key, ...(/^eyJ/.test(String(key || "")) ? { Authorization: `Bearer ${key}` } : {}) },
       });
       if (!res.ok) {
         到達 = { ok: false, detail: `表に届きません（応答コード ${res.status}）` };
