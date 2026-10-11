@@ -31,7 +31,7 @@ function headers(key) {
   return {
     "Content-Type": "application/json",
     "apikey":        key,
-    "Authorization": `Bearer ${key}`,
+    ...(/^eyJ/.test(String(key || "")) ? { Authorization: `Bearer ${key}` } : {}),
     "Prefer":        "return=representation",
   };
 }
